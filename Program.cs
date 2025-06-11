@@ -4,6 +4,8 @@ using TaskTrackerAPI.Profiles;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using TaskTrackerAPI.Services;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 
 
@@ -66,6 +68,34 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowedOrigins", policy =>
+    {
+        policy.WithOrigins("https://localhost:5001")
+        .AllowAnyHeader()
+        .AllowAnyMethod();
+    });
+});
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPolicy("TokenBucket", context =>
+       RateLimitPartition.Get<string>(
+          context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+          ip => new TokenBucketRateLimiter (
+              new TokenBucketRateLimiterOptions
+              {
+                  TokenLimit = 10,
+                  TokensPerPeriod = 5,
+                  ReplenishmentPeriod = TimeSpan.FromSeconds(10),
+                  QueueLimit = 2,
+                  QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                  AutoReplenishment = true,
+              })
+          ));
+
+});
 
 
 var app = builder.Build();
@@ -81,7 +111,9 @@ app.UseHttpsRedirection();
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseCors("AllowedOrigins");
+app.UseRateLimiter();
 
-app.MapControllers();
+app.MapControllers().RequireRateLimiting("TokenBucket");
 
 app.Run();
